@@ -3,6 +3,7 @@ import numpy as np
 from matting import load_path,load_data,load_alphamatting_data,load_validation_data,unpool
 import os
 from scipy import misc
+import matplotlib.pyplot as plt
 os.environ['CUDA_VISIBLE_DEVICES']='0'
 
 image_size = 320
@@ -408,7 +409,20 @@ with tf.Session(config=tf.ConfigProto(gpu_options = gpu_options)) as sess:
             feed = {image_batch:batch_RGBs, GT_matte_batch:batch_alphas,GT_trimap:batch_trimaps, GTBG_batch:batch_BGs, GTFG_batch:batch_FGs,raw_RGBs:RGBs_with_mean,training:True}
 
             _,loss,summary_str,step= sess.run([train_op,total_loss,summary_op,global_step],feed_dict = feed)
+            trimap=b_trimap.eval(feed_dict=feed)
+            alpha=pred_final.eval(feed_dict=feed)
             print('epoch %d   batch %d   loss is %f' %(epoch_num,batch_num,loss))
+            
+            plt.figure(figsize=(20, 100))
+            plt.subplot(1,4,1)
+            plt.imshow(batch_RGBs.reshape(320,320,3))
+            plt.subplot(1,4,2)
+            plt.imshow(np.concatenate([trimap.reshape(320,320,1)/255,trimap.reshape(320,320,1)/255,trimap.reshape(320,320,1)/255],axis=2))
+            plt.subplot(1,4,3)
+            plt.imshow(np.concatenate([alpha.reshape(320,320,1),alpha.reshape(320,320,1),alpha.reshape(320,320,1)],axis=2))
+            plt.subplot(1,4,4)
+            plt.imshow(np.concatenate([batch_alphas.reshape(320,320,1),batch_alphas.reshape(320,320,1),batch_alphas.reshape(320,320,1)],axis=2))
+            plt.show()
 
             if step%200 == 0:
                 print('saving model......')
