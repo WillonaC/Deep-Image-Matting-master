@@ -1,2 +1,6 @@
 train_data/
 vgg16_weights.npz
+matting_log/
+model/
+*.png
+*.pyc
