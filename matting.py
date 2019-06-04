@@ -4,6 +4,8 @@ import random
 from scipy import misc,ndimage
 import os
 from gen_gradient_data import sobel_demo,Scharr_demo,Laplace_demo
+import h5py
+import matplotlib.pyplot as plt
 
 trimap_kernel = [val for val in range(20,40)]
 g_mean = np.array(([126.88,120.24,112.19])).reshape([1,1,3])
@@ -47,7 +49,7 @@ def UR_center(trimap):
     index = random.choice([i for i in range(len(target[0]))])
     return  np.array(target)[:,index][:2]
 
-def load_path(alpha,eps,BG,hard_mode = False):
+def load_path(alpha,eps,BG,direction,hard_mode = False):
     folders = os.listdir(alpha)
     common_paths = []
     if hard_mode:
@@ -64,9 +66,10 @@ def load_path(alpha,eps,BG,hard_mode = False):
     alphas_abspath = [os.path.join(alpha,common_path) for common_path in common_paths]
     epses_abspath = [os.path.join(eps,common_path) for common_path in common_paths]
     BGs_abspath = [os.path.join(BG,common_path)[:-3] + 'png' for common_path in common_paths]
-    return np.array(alphas_abspath),np.array(epses_abspath),np.array(BGs_abspath)
+    dirs_abspath = [os.path.join(direction,common_path)[:-3] + 'mat' for common_path in common_paths]
+    return np.array(alphas_abspath),np.array(epses_abspath),np.array(BGs_abspath),np.array(dirs_abspath)
 
-def load_data(batch_alpha_paths,batch_eps_paths):#,batch_BG_paths):
+def load_data(batch_alpha_paths,batch_eps_paths,batch_dir_paths):#,batch_BG_paths):
 	
 	batch_size = batch_alpha_paths.shape[0]
 	train_batch = []
@@ -76,11 +79,15 @@ def load_data(batch_alpha_paths,batch_eps_paths):#,batch_BG_paths):
 		alpha = misc.imread(batch_alpha_paths[i],'L').astype(np.float32)
 
 		eps = misc.imread(batch_eps_paths[i]).astype(np.float32)
+        
+		image_direction = h5py.File(batch_dir_paths[i],'r')
+		image_direction_keys = list(image_direction.keys())    
+		data_direction = np.transpose(image_direction[image_direction_keys[0]].value,(2,1,0))   
 
 #		BG = misc.imread(batch_BG_paths[i]).astype(np.float32)
 		
 #		batch_i,raw_RGB = preprocessing_single(alpha, BG, eps,batch_alpha_paths[i])	
-		batch_i = preprocessing_single(alpha, eps,batch_alpha_paths[i])	
+		batch_i = preprocessing_single(alpha, eps,data_direction,batch_alpha_paths[i])	
 		train_batch.append(batch_i)
 #		images_without_mean_reduction.append(raw_RGB)
 	train_batch = np.stack(train_batch)
@@ -94,7 +101,7 @@ def generate_trimap(trimap,alpha):
 	#trimap[np.where((ndimage.grey_dilation(alpha[:,:,0],size=(k_size,k_size)) - alpha[:,:,0]!=0))] = 128
 	return trimap
 
-def preprocessing_single(alpha, eps,name,image_size=320):
+def preprocessing_single(alpha, eps,data_direction,name,image_size=320):
 
     alpha = np.expand_dims(alpha,2)
     trimap = np.copy(alpha)
@@ -103,13 +110,13 @@ def preprocessing_single(alpha, eps,name,image_size=320):
 #    train_data = np.zeros([image_size,image_size,8])
     train_data = np.zeros([image_size,image_size,5])
 #    crop_size = random.choice([320,480,620])
-    crop_size = random.choice([320,480,620])
+    crop_size = random.choice([320])
 #    crop_size = 320   
 #    flip = random.choice([0,1])
 #    flip=0
     i_UR_center = UR_center(trimap)
     #i_UR_center = [int(alpha.shape[0]/2),int(alpha.shape[1]/2)]
-    train_pre = np.concatenate([trimap,alpha,eps],2)
+    train_pre = np.concatenate([trimap,alpha,eps,data_direction],2)
 
     if crop_size == 320:
         h_start_index = i_UR_center[0] - 159
@@ -132,9 +139,20 @@ def preprocessing_single(alpha, eps,name,image_size=320):
 #        reduced_RGB = raw_RGB - g_mean
 #        reduced_RGB = raw_RGB/255
 #        tmp = np.concatenate([reduced_RGB,tmp],2)
-        mask_grad = tmp[:,:,0]==0
-        img_gradient = sobel_demo(tmp[:,:,2:5],mask_grad)/255
+#        mask_grad = tmp[:,:,0]==0
+#        img_gradient = sobel_demo(tmp[:,:,2:5],mask_grad)/255
+        img_gradient = tmp[:,:,5:8]
         tmp = np.concatenate([img_gradient,tmp],2)
+#        plt.figure(figsize=(20, 100))
+#        plt.subplot(1,4,1)
+#        plt.imshow(tmp[:,:,0:3])
+#        plt.subplot(1,4,2)
+#        plt.imshow(np.concatenate([tmp[:,:,3].reshape(320,320,1),tmp[:,:,3].reshape(320,320,1),tmp[:,:,3].reshape(320,320,1)],axis=2))
+#        plt.subplot(1,4,3)
+#        plt.imshow(np.concatenate([tmp[:,:,4].reshape(320,320,1),tmp[:,:,4].reshape(320,320,1),tmp[:,:,4].reshape(320,320,1)],axis=2))
+#        plt.subplot(1,4,4)
+#        plt.imshow(np.concatenate([tmp[:,:,4].reshape(320,320,1),tmp[:,:,4].reshape(320,320,1),tmp[:,:,4].reshape(320,320,1)],axis=2))
+#        plt.show()
         train_data = tmp[:,:,0:5]
 
     if crop_size == 480:
@@ -162,8 +180,9 @@ def preprocessing_single(alpha, eps,name,image_size=320):
 #        reduced_RGB = raw_RGB - g_mean      
 #        reduced_RGB = raw_RGB/255    
 #        tmp1 = np.concatenate([reduced_RGB,tmp1],2)
-        mask_grad = tmp1[:,:,0]==0
-        img_gradient = sobel_demo(tmp1[:,:,2:5],mask_grad)/255
+#        mask_grad = tmp1[:,:,0]==0
+#        img_gradient = sobel_demo(tmp1[:,:,2:5],mask_grad)/255
+        img_gradient = tmp1[:,:,5:8]
         tmp1 = np.concatenate([img_gradient,tmp1],2)
         train_data = tmp1[:,:,0:5]
 
@@ -194,6 +213,7 @@ def preprocessing_single(alpha, eps,name,image_size=320):
 #        tmp1 = np.concatenate([reduced_RGB,tmp1],2)
         mask_grad = tmp1[:,:,0]==0
         img_gradient = sobel_demo(tmp1[:,:,2:5],mask_grad)/255
+        img_gradient = tmp1[:,:,5:8]
         tmp1 = np.concatenate([img_gradient,tmp1],2)
         train_data = tmp1[:,:,0:5]
         

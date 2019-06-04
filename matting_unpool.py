@@ -5,6 +5,7 @@ import os
 from scipy import misc
 import matplotlib.pyplot as plt
 from gen_gradient_data import sobel_demo,Scharr_demo,Laplace_demo
+import h5py
 os.environ['CUDA_VISIBLE_DEVICES']='0'
 
 image_size = 320
@@ -24,11 +25,12 @@ test_outdir = './test_predict'
 model_path = './vgg16_weights.npz'
 log_dir = 'matting_log'
 
-dataset_alpha = 'train_data/alpha'
-dataset_eps = 'train_data/eps'
-dataset_BG = 'train_data/bg'
+dataset_alpha = 'train_data2/alpha'
+dataset_eps = 'train_data2/eps'
+dataset_BG = 'train_data2/bg'
+dataset_dir = 'train_data2/direction'
 
-paths_alpha,paths_eps,paths_BG = load_path(dataset_alpha,dataset_eps,dataset_BG,hard_mode = hard_mode)
+paths_alpha,paths_eps,paths_BG,paths_dir = load_path(dataset_alpha,dataset_eps,dataset_BG,dataset_dir,hard_mode = hard_mode)
 
 range_size = len(paths_alpha)
 print('range_size is %d' % range_size)
@@ -418,8 +420,9 @@ with tf.Session() as sess:
             batch_alpha_paths = paths_alpha[batch_index]
             batch_eps_paths = paths_eps[batch_index]
             batch_BG_paths = paths_BG[batch_index]
+            batch_dir_paths = paths_dir[batch_index]
 #            batch_RGBs,batch_trimaps,batch_alphas,batch_BGs,batch_FGs,RGBs_with_mean = load_data(batch_alpha_paths,batch_eps_paths,batch_BG_paths)
-            batch_Gradients,batch_masks,batch_alphas = load_data(batch_alpha_paths,batch_eps_paths)
+            batch_Gradients,batch_masks,batch_alphas = load_data(batch_alpha_paths,batch_eps_paths,batch_dir_paths)
 
 #            feed = {image_batch:batch_RGBs, GT_matte_batch:batch_alphas,GT_trimap:batch_trimaps, GTBG_batch:batch_BGs, GTFG_batch:batch_FGs,raw_RGBs:RGBs_with_mean,training:True}
             feed = {image_batch:batch_Gradients, GT_matte_batch:batch_alphas,GT_mask:batch_masks,training:True}
@@ -436,7 +439,7 @@ with tf.Session() as sess:
             misc.imsave(os.path.join('./tmp/',str(nummm[fff%20])+'_1grad.png'),batch_Gradients.reshape(320,320,3))
  #           plt.subplot(1,4,2)
   #          plt.imshow(np.concatenate([mask_.reshape(320,320,1)/255,mask_.reshape(320,320,1)/255,mask_.reshape(320,320,1)/255],axis=2))
-            misc.imsave(os.path.join('./tmp/',str(nummm[fff%20])+'_2mask.png'),np.concatenate([mask_.reshape(320,320,1)/255,mask_.reshape(320,320,1)/255,mask_.reshape(320,320,1)/255],axis=2))
+            #misc.imsave(os.path.join('./tmp/',str(nummm[fff%20])+'_2mask.png'),np.concatenate([mask_.reshape(320,320,1)/255,mask_.reshape(320,320,1)/255,mask_.reshape(320,320,1)/255],axis=2))
   #          plt.subplot(1,4,3)
   #          plt.imshow(np.concatenate([alpha_.reshape(320,320,1),alpha_.reshape(320,320,1),alpha_.reshape(320,320,1)],axis=2))
             misc.imsave(os.path.join('./tmp/',str(nummm[fff%20])+'_3res.png'),np.concatenate([alpha_.reshape(320,320,1),alpha_.reshape(320,320,1),alpha_.reshape(320,320,1)],axis=2))
@@ -451,6 +454,7 @@ with tf.Session() as sess:
                 print('saving model......')
                 saver.save(sess,'./model/model.ckpt',global_step = step, write_meta_graph = False)
 
+            if step%999999 == 0:
                 print('test on validation data...')
                 vali_diff = []
 #                test_RGBs,test_trimaps,test_alphas,all_shape,image_paths,trimap_size= load_alphamatting_data(test_dir)
@@ -459,6 +463,7 @@ with tf.Session() as sess:
                 rgb_path = os.path.join(test_dir,'rgb')
                 trimap_path = os.path.join(test_dir,'trimap')
                 alpha_path = os.path.join(test_dir,'alpha')	
+                dir_path = os.path.join(test_dir,'direction')	
                 images = os.listdir(trimap_path)
                 test_num = len(images)
             
@@ -466,9 +471,13 @@ with tf.Session() as sess:
                     rgb = misc.imread(os.path.join(rgb_path,images[i]))
                     trimap = misc.imread(os.path.join(trimap_path,images[i]),'L')
                     alpha = misc.imread(os.path.join(alpha_path,images[i]),'L')/255.0
+                    image_direction = h5py.File(os.path.join(dir_path,images[i][:-3]+'mat'),'r')
+                    image_direction_keys = list(image_direction.keys())    
+                    data_direction = np.transpose(image_direction[image_direction_keys[0]].value,(2,1,0)) 
                     shape_i = trimap.shape
-                    mask_grad = alpha==0
-                    img_gradient = sobel_demo(rgb,mask_grad)/255
+#                    mask_grad = alpha==0
+#                    img_gradient = sobel_demo(rgb,mask_grad)/255
+                    img_gradient = data_direction
                     test_Gradient = img_gradient.astype(np.float32)
                     trimap = trimap.astype(np.float32)
                     test_trimap = np.expand_dims(trimap,2)
@@ -503,22 +512,23 @@ with tf.Session() as sess:
                                 test_label_patch=np.array(test_label_patch)
                                 
                                 feed = {image_batch:test_grad_patch, GT_matte_batch:test_label_patch,GT_mask:test_trimap_patch,training:False}
-                                test_out = sess.run(pred_final,feed_dict = feed)
+#                                test_out = sess.run(pred_final,feed_dict = feed)
+                                test_out=pred_final.eval(feed_dict=feed)
                                 
                                 for res_index in range(train_batch_size):
                                     h_cur=hw_index[res_index][0]
                                     w_cur=hw_index[res_index][1]
                                     res_[h_cur:h_cur+image_size, w_cur:w_cur+image_size, :]+=test_out[res_index,:,:,:].reshape(image_size,image_size,1)
-                                    plt.figure(figsize=(20, 100))
-                                    plt.subplot(1,4,1)
-                                    plt.imshow(test_grad_patch.reshape(320,320,3))
-                                    plt.subplot(1,4,2)
-                                    plt.imshow(np.concatenate([test_trimap_patch.reshape(320,320,1)/255,test_trimap_patch.reshape(320,320,1)/255,test_trimap_patch.reshape(320,320,1)/255],axis=2))
-                                    plt.subplot(1,4,3)
-                                    plt.imshow(np.concatenate([test_out[res_index,:,:,:].reshape(image_size,image_size,1),test_out[res_index,:,:,:].reshape(image_size,image_size,1),test_out[res_index,:,:,:].reshape(image_size,image_size,1)],axis=2))
-                                    plt.subplot(1,4,4)
-                                    plt.imshow(np.concatenate([test_label_patch.reshape(320,320,1),test_label_patch.reshape(320,320,1),test_label_patch.reshape(320,320,1)],axis=2))
-                                    plt.show()
+#                                    plt.figure(figsize=(20, 100))
+#                                    plt.subplot(1,4,1)
+#                                    plt.imshow(test_grad_patch.reshape(320,320,3))
+#                                    plt.subplot(1,4,2)
+#                                    plt.imshow(np.concatenate([test_trimap_patch.reshape(320,320,1)/255,test_trimap_patch.reshape(320,320,1)/255,test_trimap_patch.reshape(320,320,1)/255],axis=2))
+#                                    plt.subplot(1,4,3)
+#                                    plt.imshow(np.concatenate([test_out[res_index,:,:,:].reshape(image_size,image_size,1),test_out[res_index,:,:,:].reshape(image_size,image_size,1),test_out[res_index,:,:,:].reshape(image_size,image_size,1)],axis=2))
+#                                    plt.subplot(1,4,4)
+#                                    plt.imshow(np.concatenate([test_label_patch.reshape(320,320,1),test_label_patch.reshape(320,320,1),test_label_patch.reshape(320,320,1)],axis=2))
+#                                    plt.show()
                                     sum_[h_cur:h_cur+image_size, w_cur:w_cur+image_size, :]+=1
                                 hw_index=[]
                                 test_grad_patch=[]
